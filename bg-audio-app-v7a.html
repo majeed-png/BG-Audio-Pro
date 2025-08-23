@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Video → Background Audio (Single File)</title>
+  <meta name="theme-color" content="#000000"/>
+  <style>
+    *{{box-sizing:border-box}}
+    :root{{ --bg:#000; --fg:#eaeaea; --muted:#9aa0a6; --rail:#6d6d6d; --accent:#e11d48; }}
+    html,body{{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial}}
+    .topbar{{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid #111;position:sticky;top:0;background:#000}}
+    h1{{margin:0;font-size:18px;letter-spacing:.4px}}
+    .ghost{{background:transparent;border:1px solid #333;color:#ddd;padding:8px 12px;border-radius:10px;cursor:pointer}}
+    .ghost.small{{padding:8px 10px;font-size:13px}}
+    main{{max-width:900px;margin:0 auto;padding:20px}}
+
+    .uploader{{border:1px dashed #2a2a2a;border-radius:16px;padding:18px;margin-bottom:18px;text-align:center;background:#0b0b0b}}
+    .drop{{display:block;padding:32px;border-radius:12px;background:#0f0f0f;cursor:pointer}}
+    .drop strong{{display:block;font-size:18px;margin-bottom:6px}}
+    .drop span{{color:var(--muted)}}
+    .uploader input[type=file]{{display:none}}
+    .hint{{color:var(--muted);font-size:12px;margin-top:8px}}
+
+    .player{{border:1px solid #111;border-radius:16px;background:#0b0b0b;padding:16px}}
+    .meta{{display:flex;align-items:center;gap:12px;margin-bottom:10px}}
+    .thumb{{width:44px;height:44px;display:grid;place-items:center;background:#0e0e0e;border:1px solid #181818;border-radius:10px}}
+    .title{{font-weight:600}}
+
+    .transport{{display:grid;gap:8px;margin:12px 0}}
+    .transport-row{{display:flex;gap:8px;align-items:center}}
+    .primary{{appearance:none;background:var(--accent);color:white;border:none;border-radius:12px;padding:12px 16px;font-weight:700;cursor:pointer}}
+    #seek{{width:100%}}
+    .time{{color:var(--muted);font-size:12px;display:flex;gap:6px;justify-content:flex-end}}
+
+    .controls{{margin-top:6px}}
+    .axis{{position:relative;margin:28px 0 28px}}
+    .axis-title{{color:#bfbfbf;text-align:center;margin-bottom:16px;font-size:18px}}
+    .axis-rail{{position:relative;height:42px}}
+    .axis-rail::before{{content:''; position:absolute; left:6%; right:6%; top:50%; height:3px; background:var(--rail); border-radius:3px; transform:translateY(-50%);}}
+    .center-mark{{position:absolute; left:50%; top:0; height:100%; width:0; border-left:2px dashed #7a7a7a; transform:translateX(-50%);}}
+    .center-mark::after{{content:'1'; position:absolute; top:50%; transform:translate(-50%,-50%); left:50%; color:#c8c8c8; font-weight:700;}}
+    .tick{{position:absolute; color:#c8c8c8; font-size:14px; top:0; transform:translateY(-30%)}}
+    .tick.left{{left:4%}}
+    .tick.right{{right:4%}}
+
+    .knob{{ --dx: 0px; position:absolute; left:6%; top:50%;
+      width:30px; height:30px; border-radius:50%;
+      background:linear-gradient(#9b9b9b,#7e7e7e);
+      border:1.5px solid #c5c5c5;
+      transform:translate(var(--dx), -50%);
+      box-shadow:0 1px 0 rgba(0,0,0,.45);
+      cursor:pointer; touch-action:none; will-change:transform; transition: transform .06s linear; }}
+    .knob.drag{{ transition:none }}
+
+    .lockrow{{display:grid;place-items:center}}
+    .lock{{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;border-radius:14px;border:2px solid #2b2b2b;background:#0f0f0f;color:#ddd;cursor:pointer;transition:.2s}}
+    .lock.locked{{border-color:#6b0000;background:#140000}}
+    .lock.unlocked{{border-color:#0c3b12;background:#071708}}
+    .note{{color:var(--muted);margin-top:6px;text-align:center;font-size:12px}}
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <h1>Video → Audio (Pro)</h1>
+    <button id="installBtn" class="ghost" title="تثبيت كـ PWA" hidden>تثبيت</button>
+  </header>
+
+  <main>
+    <section class="uploader" id="dropZone">
+      <input type="file" id="fileInput" accept="video/*,audio/*"/>
+      <label for="fileInput" class="drop">
+        <strong>ارفع فيديو / صوت</strong>
+        <span>اسحب الملف هنا أو اضغط للاختيار</span>
+      </label>
+      <p class="hint">يشغّل الصوت بالخلفية ويظهر تحكم شاشة القفل. لتجربة أفضل ثبّته كتطبيق (PWA).</p>
+    </section>
+
+    <section class="player" hidden>
+      <div class="meta">
+        <div class="thumb" id="thumb">🎧</div>
+        <div class="title" id="title">—</div>
+      </div>
+
+      <div class="transport">
+        <div class="transport-row">
+          <button id="playPause" class="primary">تشغيل</button>
+          <button id="loopBtn" class="ghost small" title="تكرار">تكرار ♾️</button>
+        </div>
+        <input type="range" id="seek" min="0" max="1" step="0.001" value="0">
+        <div class="time"><span id="cur">0:00</span> / <span id="dur">0:00</span></div>
+      </div>
+
+      <div class="controls">
+        <div class="axis" id="speedAxis" data-name="Speed">
+          <div class="axis-title">Speed</div>
+          <div class="axis-rail">
+            <span class="tick left">½</span>
+            <div class="center-mark"></div>
+            <span class="tick right">2</span>
+            <div class="knob" id="speedKnob" role="slider" aria-valuemin="0.5" aria-valuemax="2" aria-valuenow="1" aria-label="Speed"></div>
+          </div>
+        </div>
+
+        <div class="axis" id="pitchAxis" data-name="Pitch">
+          <div class="axis-title">Pitch</div>
+          <div class="axis-rail">
+            <span class="tick left">½</span>
+            <div class="center-mark"></div>
+            <span class="tick right">2</span>
+            <div class="knob" id="pitchKnob" role="slider" aria-valuemin="0.5" aria-valuemax="2" aria-valuenow="1" aria-label="Pitch"></div>
+          </div>
+        </div>
+
+        <div class="row lockrow">
+          <button id="lockToggle" class="lock locked" aria-pressed="true" title="ربط السرعة والبيتش">
+            <span class="icon" aria-hidden="true">🔒</span>
+          </button>
+          <small class="note" id="modeNote">
+            مرتبط: تغيير السرعة يغيّر الطبقة نفسها (varispeed طبيعي).
+          </small>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <audio id="player" preload="metadata" playsinline style="display:none" crossorigin="anonymous"></audio>
+
+  <script>
+  if ('serviceWorker' in navigator) {{ navigator.serviceWorker.getRegistrations().then(list => list.forEach(r => r.unregister())); }}
+
+  const fileInput = document.getElementById('fileInput');
+  const dropZone = document.getElementById('dropZone');
+  const playerSection = document.querySelector('.player');
+  const titleEl = document.getElementById('title');
+  const playPauseBtn = document.getElementById('playPause');
+  const loopBtn = document.getElementById('loopBtn');
+  const seek = document.getElementById('seek');
+  const cur = document.getElementById('cur');
+  const dur = document.getElementById('dur');
+  const audio = document.getElementById('player');
+
+  const speedAxis = document.getElementById('speedAxis');
+  const pitchAxis = document.getElementById('pitchAxis');
+  const lockToggle = document.getElementById('lockToggle');
+  const modeNote = document.getElementById('modeNote');
+
+  let locked = true;
+  let url = null;
+  let userPaused = false;
+
+  function secondsToStamp(s){{ if(!isFinite(s)) return '0:00'; const m=Math.floor(s/60),r=Math.floor(s%60); return `${{m}}:${{String(r).padStart(2,'0')}}`; }}
+  function clamp(n,a,b){{ return Math.min(b, Math.max(a,n)); }}
+  function fToVal(f){{ f=clamp(f,0,1); return (f<=0.5)?(0.5+f):(2*f); }}
+  function valToF(v){{ v=clamp(v,0.5,2); return (v<=1)?(v-0.5):(v/2); }}
+
+  function makeAxis(axisEl, initial=1, onChange){{
+    const knob = axisEl.querySelector('.knob');
+    const rail = axisEl.querySelector('.axis-rail');
+    let value = initial;
+    let frac = valToF(value);
+    let dragging = false;
+
+    function layout(){{
+      const rect = rail.getBoundingClientRect();
+      const start = 0.06*rect.width, width = 0.88*rect.width;
+      const x = start + frac * width;
+      knob.style.setProperty('--dx', `${{x - start - 15}}px`);
+      knob.setAttribute('aria-valuenow', value.toFixed(2));
+    }}
+    function setFromPointer(clientX){{
+      const rect = rail.getBoundingClientRect();
+      const start = 0.06*rect.width, end = 0.94*rect.width;
+      const x = clamp(clientX - rect.left, start, end);
+      const rel = (x - start) / (0.88*rect.width);
+      frac = clamp(rel, 0, 1);
+      const newVal = fToVal(frac);
+      if(newVal === value) return;
+      value = newVal;
+      layout();
+      onChange(value);
+    }}
+    function setValue(v, silent=false){{
+      value = clamp(v,0.5,2);
+      frac = valToF(value);
+      layout();
+      if(!silent) onChange(value);
+    }}
+    function onDown(e){{
+      knob.classList.add('drag'); dragging = true;
+      setFromPointer((e.touches?.[0]||e).clientX);
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('touchmove', onMove, {{passive:false}});
+      window.addEventListener('mouseup', onUp);
+      window.addEventListener('touchend', onUp);
+    }}
+    function onMove(e){{ if(!dragging) return; const p=(e.touches?.[0]||e); setFromPointer(p.clientX); e.preventDefault?.(); }}
+    function onUp(){{ dragging=false; knob.classList.remove('drag');
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('touchmove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('touchend', onUp);
+    }}
+    rail.addEventListener('mousedown', onDown);
+    rail.addEventListener('touchstart', onDown, {{passive:false}});
+    knob.addEventListener('mousedown', onDown);
+    knob.addEventListener('touchstart', onDown, {{passive:false}});
+
+    knob.tabIndex = 0;
+    knob.addEventListener('keydown', (e)=>{{ const step=0.01; if(e.key==='ArrowLeft'||e.key==='ArrowDown') setValue(value-step); if(e.key==='ArrowRight'||e.key==='ArrowUp') setValue(value+step); }});
+
+    setValue(initial, true); window.addEventListener('resize', layout);
+    return {{ get value(){{ return value; }}, setValue }};
+  }}
+
+  let targetRate = 1, currentRate = 1, rAF = 0;
+  function smoothRateTo(val, immediate=false){{
+    const clamped = Math.min(2, Math.max(0.5, val));
+    targetRate = clamped;
+    if(immediate){{ currentRate = targetRate; audio.playbackRate = currentRate; return; }}
+    if(!rAF){{
+      const step = ()=>{{
+        const diff = targetRate - currentRate;
+        currentRate += diff * 0.25;
+        if(Math.abs(diff) < 0.0008){{
+          currentRate = targetRate; audio.playbackRate = currentRate;
+          cancelAnimationFrame(rAF); rAF = 0; return;
+        }}
+        audio.playbackRate = currentRate;
+        if(!userPaused && audio.paused){{ audio.play().catch(()=>{{}}); }}
+        rAF = requestAnimationFrame(step);
+      }};
+      rAF = requestAnimationFrame(step);
+    }}
+  }}
+  function setPreservesPitch(on){{
+    try {{ audio.preservesPitch = on; }} catch {{}}
+    try {{ audio.webkitPreservesPitch = on; }} catch {{}}
+    try {{ audio.mozPreservesPitch = on; }} catch {{}}
+  }}
+
+  const speedCtrl = makeAxis(speedAxis, 1, onSpeedChange);
+  const pitchCtrl = makeAxis(pitchAxis, 1, onPitchChange);
+
+  function onSpeedChange(v){{ if(locked) pitchCtrl.setValue(v, true); smoothRateTo(v); }}
+  function onPitchChange(v){{ if(locked){{ speedCtrl.setValue(v, true); smoothRateTo(v); }} }}
+
+  lockToggle.addEventListener('click', ()=>{{ locked = !locked;
+    lockToggle.classList.toggle('locked', locked);
+    lockToggle.classList.toggle('unlocked', !locked);
+    lockToggle.querySelector('.icon').textContent = locked ? '🔒' : '🔓';
+    modeNote.textContent = locked
+      ? 'مرتبط: تغيير السرعة يغيّر الطبقة نفسها (varispeed طبيعي).'
+      : 'غير مرتبط: السرعة تتغير مع حفظ الطبقة (سيُضاف تغيير طبقة حقيقي لاحقًا).';
+    if(locked) pitchCtrl.setValue(speedCtrl.value, true);
+    setPreservesPitch(!locked);
+  }});
+
+  audio.loop = true;
+  loopBtn.classList.add('active');
+  loopBtn.textContent = 'تكرار ♾️ (مفعّل)';
+  loopBtn.addEventListener('click', ()=>{{ audio.loop = !audio.loop;
+    loopBtn.classList.toggle('active', audio.loop);
+    loopBtn.textContent = audio.loop ? 'تكرار ♾️ (مفعّل)' : 'تكرار ♾️ (موقّف)';
+  }});
+
+  ['dragenter','dragover'].forEach(ev=>dropZone.addEventListener(ev, e=>{{ e.preventDefault(); dropZone.classList.add('drag'); }}));
+  ['dragleave','drop'].forEach(ev=>dropZone.addEventListener(ev, e=>{{ e.preventDefault(); dropZone.classList.remove('drag'); }}));
+  dropZone.addEventListener('drop', e=>{{ const f=e.dataTransfer.files?.[0]; if(f) handleFile(f); }});
+  fileInput.addEventListener('change', e=>{{ const f=e.target.files?.[0]; if(f) handleFile(f); }});
+
+  async function handleFile(file){{
+    if(url) URL.revokeObjectURL(url);
+    url = URL.createObjectURL(file);
+    audio.pause(); userPaused = false;
+    audio.src = url; audio.load();
+
+    titleEl.textContent = file.name || 'بدون اسم';
+    playerSection.hidden = false;
+
+    speedCtrl.setValue(1, true);
+    pitchCtrl.setValue(1, true);
+    smoothRateTo(1, true);
+    setPreservesPitch(false);
+    locked = true;
+    lockToggle.classList.add('locked'); lockToggle.classList.remove('unlocked');
+    lockToggle.querySelector('.icon').textContent='🔒';
+    modeNote.textContent = 'مرتبط: تغيير السرعة يغيّر الطبقة نفسها (varispeed طبيعي).';
+
+    if ('mediaSession' in navigator){{
+      navigator.mediaSession.metadata = new MediaMetadata({{
+        title: titleEl.textContent, artist: 'Local file', album: 'Background Audio',
+        artwork: [{{src: 'data:image/png;base64,{icon_b64}', sizes: '192x192', type: 'image/png'}}]
+      }});
+    }}
+
+    await audio.play().catch(()=>{{}});
+    playPauseBtn.textContent = 'إيقاف مؤقت';
+    if('mediaSession' in navigator) navigator.mediaSession.playbackState='playing';
+  }}
+
+  playPauseBtn.addEventListener('click', ()=>{{ if(audio.paused){{ userPaused = false; audio.play().catch(()=>{{}}); playPauseBtn.textContent='إيقاف مؤقت';
+      if('mediaSession' in navigator) navigator.mediaSession.playbackState='playing';
+    }} else {{ userPaused = true; audio.pause(); playPauseBtn.textContent='تشغيل';
+      if('mediaSession' in navigator) navigator.mediaSession.playbackState='paused';
+    }} }});
+  audio.addEventListener('loadedmetadata', ()=>{{ seek.max = audio.duration || 1; dur.textContent = secondsToStamp(audio.duration); cur.textContent = '0:00'; }});
+  audio.addEventListener('timeupdate', ()=>{{ if(!seek.matches(':active')) seek.value = audio.currentTime; cur.textContent = secondsToStamp(audio.currentTime); }});
+  seek.addEventListener('input', ()=>{{ audio.currentTime = Number(seek.value); }});
+  audio.addEventListener('ratechange', ()=>{{ if(!userPaused && audio.paused){{ audio.play().catch(()=>{{}}); }} }});
+  </script>
+</body>
+</html>
