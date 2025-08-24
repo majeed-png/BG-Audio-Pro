@@ -3,8 +3,12 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Background Audio + Repeat</title>
+  <title>Background Audio + Repeat (PWA)</title>
   <meta name="theme-color" content="#000000"/>
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="manifest" href="manifest.webmanifest">
   <style>
     *{box-sizing:border-box} :root{--bg:#000;--fg:#eaeaea;--muted:#9aa0a6;--accent:#e11d48;}
     html,body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial}
@@ -24,7 +28,10 @@
   </style>
 </head>
 <body>
-  <header class="topbar"><h1>Audio (BG + Repeat)</h1><button id="installBtn" class="ghost" hidden>تثبيت</button></header>
+  <header class="topbar">
+    <h1>Audio (BG + Repeat)</h1>
+    <button id="installBtn" class="ghost" hidden>تثبيت</button>
+  </header>
   <main>
     <section class="uploader" id="dropZone">
       <input type="file" id="fileInput" accept="video/*,audio/*"/>
@@ -42,14 +49,21 @@
         <input type="range" id="seek" min="0" max="1" step="0.001" value="0">
         <div class="time"><span id="cur">0:00</span> / <span id="dur">0:00</span></div>
       </div>
-      <p class="note">لن نبدّل السرعة/الطبقة — فقط تشغيل بالخلفية مع تكرار.</p>
+      <p class="note">بدون سرعة/بيتش — فقط تشغيل بالخلفية + تكرار.</p>
     </section>
   </main>
 
   <audio id="player" preload="metadata" playsinline style="display:none" crossorigin="anonymous"></audio>
 
   <script>
-  if ('serviceWorker' in navigator) { navigator.serviceWorker.getRegistrations().then(l => l.forEach(r => r.unregister())); }
+  // Register SW for installability + offline
+  if('serviceWorker' in navigator){ navigator.serviceWorker.register('sw.js').catch(()=>{}); }
+  // PWA install prompt (Android/Chrome)
+  const installBtn = document.getElementById('installBtn');
+  let deferredPrompt=null;
+  window.addEventListener('beforeinstallprompt', (e)=>{ e.preventDefault(); deferredPrompt=e; installBtn.hidden=false; });
+  installBtn.addEventListener('click', async ()=>{ if(!deferredPrompt) return; deferredPrompt.prompt(); await deferredPrompt.userChoice; deferredPrompt=null; installBtn.hidden=true; });
+  window.addEventListener('appinstalled', ()=>{ installBtn.hidden=true; });
 
   const input = document.getElementById('fileInput');
   const drop = document.getElementById('dropZone');
@@ -84,7 +98,10 @@
     if('mediaSession' in navigator){
       navigator.mediaSession.metadata = new MediaMetadata({
         title: titleEl.textContent, artist: 'Local file', album: 'Background Audio',
-        artwork: [{src: 'data:image/png;base64,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', sizes:'192x192', type:'image/png'}]
+        artwork: [
+          {src:'icon-192.png',sizes:'192x192',type:'image/png'},
+          {src:'icon-512.png',sizes:'512x512',type:'image/png'}
+        ]
       });
       navigator.mediaSession.setActionHandler('play', () => audio.play());
       navigator.mediaSession.setActionHandler('pause', () => audio.pause());
@@ -104,7 +121,7 @@
   audio.addEventListener('timeupdate', () => { if(!seek.matches(':active')) seek.value = audio.currentTime; cur.textContent = stamp(audio.currentTime); });
   seek.addEventListener('input', () => { audio.currentTime = Number(seek.value); });
 
-  // محاولة إعادة التشغيل لو سكت بالغلط بالخلفية
+  // Try to auto-resume if background pause happened unexpectedly
   document.addEventListener('visibilitychange', () => { if(document.visibilityState!=='visible' && audio.src && audio.paused && !userPaused) audio.play().catch(()=>{}); });
   </script>
 </body>
